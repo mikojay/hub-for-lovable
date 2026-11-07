@@ -35,6 +35,7 @@ For development, `npm start` runs the app from the folder. Quit the installed ap
   `npm install-scripts approve electron`.
 - **The ⌃ key release is often not delivered** to `before-input-event`. `modwatch.js` (JXA via `osascript`) polls
   `CGEventSourceFlagsState` and reports `ctrl:0`. No permissions needed. Without it, ⌃Tab waits for Enter.
+- **A Lovable page that was never shown has no size (0x0)**, so its chat box can't be found. `showFocused()` in `main.js` keeps projects that are sending or working attached underneath the front project at the same bounds (real size, page counts as visible). `prepare-send` loads all `@` targets at once. Don't park views off-screen: they stay 0x0. `SHOW_SWITCH` in `ui/app.js` is a visible-switching fallback.
 - **Menu accelerators fail after a hidden view kept focus** (macOS error beep). Shortcuts are therefore handled in
   `handleKey()` in `main.js` via `before-input-event` on the hub and on every Lovable view.
 - **Native views draw above the HTML.** Anything the hub shows on top of a project (popups, overlays) must hide the view
@@ -61,7 +62,8 @@ The project list uses `https://api.lovable.dev/user/workspaces` and
 `/v2/workspaces/{id}/projects?sort_by=last_edited_at&sort_order=desc&limit=100` (paginate with `cursor=<next_cursor>`
 while `has_more`). The bearer token is taken from requests Lovable's own pages make (`webRequest.onBeforeSendHeaders`)
 and kept in memory only. **Never log, print or save the token**, and don't add code that does.
-This API is unofficial and can change; on failure the app keeps its cached list.
+The credits pill reads `/workspaces/{id}/credit-balance` (field `total_remaining`; found by watching what Lovable's own editor requests). Only workspaces where the user is owner/admin count (`mine` in the cache, from the role in `/user/workspaces`).
+This API is unofficial and can change; on failure the app keeps its cached list and hides the credits pill.
 
 ## Rules for changes
 

@@ -4,10 +4,11 @@ One Mac window for all your [Lovable](https://lovable.dev) projects, in the styl
 
 - **Card row:** the project in the middle is the real Lovable editor (chat + live preview). The neighbours peek in from the sides.
 - **Fill window:** the ⤢ button (or ⌘⇧F) gives the current project the whole window. Switching still works.
-- **One input bar:** sends to the project in the middle. Type `@` to add more projects, and the same prompt goes to each of them.
+- **One input bar:** sends to the project in the middle. Type `@` to add more projects, and the same prompt goes to each of them (also older projects you haven't opened). Tagged projects shrink to icons when there are many; hover one to see its name, click × to remove it.
 - **Build / Chat toggle:** choose Lovable's mode right in the input bar (⇧Tab while typing). The app switches Lovable's own dropdown before sending.
 - **Activity chips:** the title bar shows which projects are working (yellow) and which are done (green ✓). Click one to jump there. You also get a macOS notification when the app is in the background.
-- **Your workspaces:** the project list comes straight from your Lovable account. Switch between workspaces (or show all) with the button next to the title.
+- **Your workspaces:** the project list comes straight from your Lovable account. The button next to the title is a list: tick one or more workspaces to show only their projects, click again to un-tick.
+- **Credits left:** the pill next to the workspace button adds up the credits of the workspaces you own (not ones where you're only a contributor). Hover it to see each workspace. When a prompt finishes, the number counts down.
 
 > Hub for Lovable is an unofficial side project. It is not made by, affiliated with or endorsed by Lovable.
 
@@ -51,6 +52,7 @@ These work even while you're typing inside Lovable.
 ## Good to know
 
 - **Privacy:** your login, project list and screenshots stay on your Mac in `~/Library/Application Support/Hub for Lovable`. The app talks only to Lovable (and to the sign-in pages you use). Log Out deletes all of it.
+- **Credits:** the app reads your balance from the same Lovable call the editor makes (`/workspaces/{id}/credit-balance`), in memory only. It checks after prompts finish and every 90 seconds.
 - **How the project list works:** Lovable's own pages send a login token with every request to Lovable's API. The app reuses the newest one, in memory only, to ask Lovable for your workspaces and projects. This is Lovable's internal API, not a public one, so a Lovable update could break it; the app then keeps its last list.
 - **Memory:** at most 5 projects stay live at once (`MAX_LIVE` in `main.js`). Others show their last screenshot and open again when you switch to them. A project that's working is never closed.
 - **Credits:** sending from the input bar is the same as typing into Lovable's chat, so it uses your credits normally.
