@@ -1,0 +1,20 @@
+{
+  "name": "hub-for-lovable",
+  "productName": "Hub for Lovable",
+  "version": "0.1.0",
+  "description": "One window for all your Lovable projects: card row, ⌘G grid, one input bar.",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "package": "bash scripts/build-mac.sh"
+  },
+  "devDependencies": {
+    "electron": "^45.2.3"
+  },
+  "license": "MIT",
+  "author": "mikojay",
+  "allowScripts": {
+    "electron@45.2.3": true
+  }
+}

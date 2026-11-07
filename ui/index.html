@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: https://screenshot2.lovable.dev https://*.lovable.dev; style-src 'self' 'unsafe-inline'; script-src 'self'">
+<title>Hub for Lovable</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="wallpaper"></div>
+
+  <header class="topbar">
+    <button class="tb back hidden" id="backBtn" title="Back to the start screen">‹ Back</button>
+    <div class="title" id="title">Hub for Lovable</div>
+    <button class="tb ws" id="wsBtn" title="Switch workspace · log out"></button>
+    <div class="toast" id="toast"></div>
+    <div class="activity" id="activity"></div>
+    <div class="actions">
+      <form id="addForm" class="addform hidden">
+        <input id="addInput" placeholder="Paste a Lovable project link…" autocomplete="off">
+      </form>
+      <button class="tb" id="addBtn" title="Add a project">＋</button>
+      <button class="tb" id="gridBtn" title="All projects (⌘G)">▦ <span class="k">⌘G</span></button>
+      <button class="tb" id="extBtn" title="Open this project in your browser">↗</button>
+      <button class="tb icon" id="fullBtn" title="Fill the window (⌘⇧F)"></button>
+    </div>
+  </header>
+
+  <main class="stage" id="stage"></main>
+
+  <section class="welcome hidden" id="welcome">
+    <img class="wicon" src="icon.png" alt="">
+    <h1>Hub for Lovable</h1>
+    <p class="wsub">All your Lovable projects in one window.<br>Switch with ⌃Tab, watch them build, send one prompt to several at once.</p>
+    <button class="wbtn" id="loginBtn">Log in to your Lovable account</button>
+    <p class="wnote">Passkeys don't work inside apps. With Google, sign in with your password.</p>
+  </section>
+
+  <footer class="bottombar">
+    <button class="nav" id="prevBtn" title="Previous (⌘⌥←)">‹</button>
+    <div class="composer">
+      <div class="pop hidden" id="pop"></div>
+      <div class="chips" id="chips"></div>
+      <textarea id="input" rows="1" placeholder="Ask me anything…  (@ to add projects)"></textarea>
+      <div class="mode" id="mode" title="Build changes the code, Chat only talks (⇧Tab to switch)">
+        <button type="button" data-mode="build">Build</button><button type="button" data-mode="chat" id="chatModeBtn">Chat</button>
+      </div>
+      <button class="sendbtn" id="sendBtn" title="Send (↵)">↑</button>
+    </div>
+    <button class="nav" id="nextBtn" title="Next (⌘⌥→)">›</button>
+  </footer>
+
+  <div class="overlay hidden" id="overlay">
+    <input class="osearch" id="osearch" placeholder="Type to filter…" autocomplete="off">
+    <div class="ogrid" id="ogrid"></div>
+    <div class="ohint" id="ohint"></div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
