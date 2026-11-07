@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hub for Lovable — Download</title>
+<meta name="description" content="All your Lovable projects in one Mac window. Free download.">
+<link rel="icon" href="assets/icon.png">
+<style>
+  /* Same look as the app (ui/style.css): blue wallpaper, glass cards, white button. */
+  :root {
+    --glass: rgba(16, 20, 36, .72);
+    --line: rgba(255, 255, 255, .09);
+    --text: #eef0f7;
+    --mute: #8f97b2;
+    --soft: #c3c9de;
+    --blue: #3b82f6;
+  }
+  * { box-sizing: border-box; }
+  html { background: #0a1230; }
+  body {
+    margin: 0;
+    color: var(--text);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    background:
+      radial-gradient(1200px 600px at 20% 100%, rgba(56,132,255,.45), transparent 60%),
+      radial-gradient(900px 500px at 85% 95%, rgba(0,180,255,.28), transparent 60%),
+      radial-gradient(1400px 700px at 50% -10%, rgba(70,90,200,.45), transparent 60%),
+      linear-gradient(180deg, #0a1230 0%, #0c1a46 50%, #0e2a6e 100%);
+    background-attachment: fixed;
+    min-height: 100vh;
+  }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 0 16px; }
+
+  /* hero (mirrors the app's start screen) */
+  header { text-align: center; padding: 72px 0 36px; }
+  .icon { width: 128px; height: 128px; filter: drop-shadow(0 18px 40px rgba(0,0,0,.45)); }
+  h1 { margin: 14px 0 8px; font-size: clamp(32px, 6vw, 46px); font-weight: 700; letter-spacing: -.015em; line-height: 1.1; }
+  .sub { margin: 0 auto; max-width: 560px; color: var(--soft); font-size: 18px; }
+
+  .download {
+    display: inline-flex; align-items: center; gap: 12px;
+    margin-top: 30px; padding: 18px 40px;
+    border-radius: 14px; background: #fff; color: #0b1020;
+    font-size: 20px; font-weight: 700; text-decoration: none;
+    box-shadow: 0 14px 40px rgba(0,0,0,.4);
+    transition: transform .15s, box-shadow .15s;
+  }
+  .download:hover { transform: translateY(-2px); box-shadow: 0 18px 48px rgba(0,0,0,.5); }
+  .download svg { width: 24px; height: 24px; flex: none; }
+  .meta { margin-top: 12px; color: var(--mute); font-size: 14px; }
+
+  /* glass card, like the project cards in the app */
+  .glass {
+    background: var(--glass); border: 1px solid var(--line); border-radius: 18px;
+    box-shadow: 0 30px 80px rgba(0,0,0,.45);
+    backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
+  }
+  .video { margin: 28px 0 80px; overflow: hidden; aspect-ratio: 16 / 9; padding: 0; }
+  .video video { width: 100%; height: 100%; display: block; background: #000; }
+
+  h2 { text-align: center; font-size: 28px; letter-spacing: -.01em; margin: 0 0 8px; }
+  .lead { text-align: center; color: var(--mute); margin: 0 0 36px; }
+
+  .steps { display: grid; gap: 22px; margin-bottom: 80px; }
+  .step { display: grid; grid-template-columns: 1fr 1.35fr; gap: 28px; align-items: center; padding: 22px; }
+  .step:nth-child(even) .text { order: 2; }
+  .num {
+    display: inline-grid; place-items: center; width: 30px; height: 30px; margin-bottom: 10px;
+    border-radius: 9px; background: rgba(59,130,246,.2); border: 1px solid rgba(59,130,246,.5);
+    color: #93c5fd; font-weight: 700; font-size: 14px;
+  }
+  .step h3 { margin: 0 0 6px; font-size: 19px; }
+  .step p { margin: 0; color: var(--soft); font-size: 15px; }
+  .step .note { margin-top: 10px; color: var(--mute); font-size: 13px; }
+  kbd {
+    font: 12px/1 -apple-system, system-ui, sans-serif; padding: 3px 6px; border-radius: 6px;
+    border: 1px solid var(--line); background: rgba(255,255,255,.07); color: var(--text);
+  }
+  .shot { width: 100%; display: block; border-radius: 12px; border: 1px solid var(--line); background: rgba(0,0,0,.3); }
+  .placeholder { aspect-ratio: 16 / 10; display: grid; place-items: center; color: var(--mute); font-size: 13px; border-style: dashed; text-align: center; padding: 12px; }
+
+  .cta { text-align: center; padding: 8px 0 72px; }
+  footer { text-align: center; color: var(--mute); font-size: 13px; padding: 24px 16px 40px; border-top: 1px solid var(--line); }
+  footer a { color: var(--soft); }
+
+  @media (max-width: 680px) {
+    header { padding-top: 48px; }
+    .icon { width: 96px; height: 96px; }
+    .step { grid-template-columns: 1fr; gap: 16px; padding: 18px; }
+    .step:nth-child(even) .text { order: 0; }
+    .download { width: 100%; justify-content: center; }
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <img class="icon" src="assets/icon.png" alt="">
+    <h1>Hub for Lovable</h1>
+    <p class="sub">All your Lovable projects in one Mac window. Switch with ⌃Tab, watch them build, send one prompt to several at once.</p>
+    <a class="download" id="dl1"></a>
+    <div class="meta" id="meta1"></div>
+  </header>
+
+  <div class="glass video">
+    <video id="video" controls playsinline preload="metadata"></video>
+  </div>
+
+  <h2>Install in 4 steps</h2>
+  <p class="lead">Takes about a minute.</p>
+  <div class="steps" id="steps"></div>
+
+  <section class="cta">
+    <a class="download" id="dl2"></a>
+    <div class="meta" id="meta2"></div>
+  </section>
+</div>
+
+<footer>
+  Hub for Lovable is an unofficial side project. It is not made by, affiliated with or endorsed by Lovable.<br>
+  <a href="https://github.com/mikojay/hub-for-lovable">Source on GitHub</a> · MIT license
+</footer>
+
+<script>
+  /* =================== CONFIG — edit this =================== */
+  const CONFIG = {
+    // Upload the zipped app to a GitHub release under exactly this file name,
+    // and this link always points to the newest one.
+    downloadUrl:   "https://github.com/mikojay/hub-for-lovable/releases/latest/download/Hub-for-Lovable-mac.zip",
+    downloadLabel: "Download for Mac",
+    downloadMeta:  "Free · macOS · Apple Silicon",
+    video:  "assets/demo.mp4",
+    poster: "",                     // optional thumbnail, e.g. "assets/poster.jpg"
+    steps: [
+      { title: "Download and unzip",
+        text:  "Click the button above. Double-click the downloaded zip to get <b>Hub for Lovable</b>.",
+        img:   "assets/step1.png" },
+      { title: "Move it to Applications",
+        text:  "Drag <b>Hub for Lovable</b> into your Applications folder.",
+        note:  "To keep it in the Dock: right-click its Dock icon → Options → Keep in Dock.",
+        img:   "assets/step2.png" },
+      { title: "Allow it the first time",
+        text:  "macOS warns you because the app isn't from the App Store. Click <b>Done</b>, then open <b>System Settings → Privacy &amp; Security</b>, scroll down and click <b>Open Anyway</b>.",
+        note:  "You only do this once.",
+        img:   "assets/step3.png" },
+      { title: "Log in to Lovable",
+        text:  "Click <b>Log in to your Lovable account</b> and log in once. The app remembers it.",
+        note:  "Passkeys don't work inside apps. With Google, sign in with your password. Email and GitHub login work too.",
+        img:   "assets/step4.png" },
+    ],
+  };
+  /* ========================================================== */
+
+  const $ = id => document.getElementById(id);
+  const icon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-5-5m5 5l5-5M4 21h16"/></svg>';
+
+  for (const n of [1, 2]) {
+    const a = $("dl" + n);
+    a.href = CONFIG.downloadUrl;
+    a.innerHTML = icon + CONFIG.downloadLabel;
+    $("meta" + n).textContent = CONFIG.downloadMeta;
+  }
+
+  const v = $("video");
+  v.src = CONFIG.video;
+  if (CONFIG.poster) v.poster = CONFIG.poster;
+
+  CONFIG.steps.forEach((s, i) => {
+    const el = document.createElement("div");
+    el.className = "glass step";
+    el.innerHTML = `
+      <div class="text">
+        <div class="num">${i + 1}</div>
+        <h3></h3><p>${s.text}</p>
+        ${s.note ? `<p class="note">${s.note}</p>` : ""}
+      </div>
+      <img class="shot" alt="">`;
+    el.querySelector("h3").textContent = s.title;
+    const img = el.querySelector("img");
+    img.alt = s.title;
+    img.onerror = () => {
+      const ph = document.createElement("div");
+      ph.className = "shot placeholder";
+      ph.textContent = "Screenshot goes here: docs/" + s.img;
+      img.replaceWith(ph);
+    };
+    img.src = s.img;
+    $("steps").appendChild(el);
+  });
+</script>
+</body>
+</html>
