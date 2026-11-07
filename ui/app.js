@@ -255,8 +255,13 @@
   function renderChips() {
     const p = cur();
     const extra = S.targets.map(byId).filter(Boolean);
-    $('chips').innerHTML = (p && !S.targets.includes(p.id) && !extra.length ? `<span class="chip">${mono(p)}${esc(disp(p))}</span>` : '')
-      + extra.map(q => `<span class="chip extra">${mono(q)}${esc(disp(q))}<button data-x="${q.id}">×</button></span>`).join('');
+    // the more projects are tagged, the shorter the chips: full names, then shortened names, then just the icons
+    // (the name shows again while the mouse is over a chip). More than 8: the rest is counted as "+N".
+    const MAX_CHIPS = 8, shown = extra.slice(0, MAX_CHIPS), more = extra.length - shown.length;
+    $('chips').dataset.n = extra.length <= 2 ? 'few' : extra.length === 3 ? 'some' : 'many';
+    $('chips').innerHTML = (p && !S.targets.includes(p.id) && !extra.length ? `<span class="chip">${mono(p)}<span class="nm">${esc(disp(p))}</span></span>` : '')
+      + shown.map(q => `<span class="chip extra">${mono(q)}<span class="nm">${esc(disp(q))}</span><button data-x="${q.id}">×</button></span>`).join('')
+      + (more > 0 ? `<span class="chip more">+${more}</span>` : '');
   }
   $('chips').addEventListener('click', e => { const b = e.target.closest('[data-x]'); if (!b) return; S.targets = S.targets.filter(x => x !== b.dataset.x); renderChips(); });
 
@@ -268,13 +273,14 @@
     if (!m) { if (S.mention) { S.mention = null; $('pop').classList.add('hidden'); showView(); } return; }
     const q = m[2].toLowerCase().trim();
     const rank = new Map(S.mru.map((id, i) => [id, i]));
-    const opts = S.order.filter(p => disp(p).toLowerCase().includes(q))
+    const matches = S.order.filter(p => disp(p).toLowerCase().includes(q));
+    const opts = matches.filter(p => !S.targets.includes(p.id))   // already tagged projects are not offered again
       .sort((a, b) => (rank.get(a.id) ?? 1e9) - (rank.get(b.id) ?? 1e9)).slice(0, 8);
     const first = !S.mention;
     S.mention = { start: before.length - m[2].length - 1, opts, idx: Math.min(S.mention?.idx || 0, Math.max(opts.length - 1, 0)) };
     if (first) hideView();   // the native Lovable view would sit on top of the popup
-    $('pop').innerHTML = opts.length ? opts.map((p, i) => `<div class="opt ${i === S.mention.idx ? 'on' : ''}" data-m="${p.id}">${mono(p)}<span>${esc(disp(p))}</span><span class="sub">${S.targets.includes(p.id) ? 'added' : ago(p.last_edited_at)}</span></div>`).join('')
-      : `<div class="opt"><span class="sub">No project matches “${esc(q)}”</span></div>`;
+    $('pop').innerHTML = opts.length ? opts.map((p, i) => `<div class="opt ${i === S.mention.idx ? 'on' : ''}" data-m="${p.id}">${mono(p)}<span>${esc(disp(p))}</span><span class="sub">${ago(p.last_edited_at)}</span></div>`).join('')
+      : `<div class="opt"><span class="sub">${matches.length ? 'Already added' : `No project matches “${esc(q)}”`}</span></div>`;
     $('pop').classList.remove('hidden');
   }
   function pickMention(id) {
@@ -305,9 +311,14 @@
     t.value = ''; autosize(); S.targets = []; renderChips();
     for (const id of ids) { S.status[id] = 'sending'; }
     renderCards();
-    // one after another: each send briefly takes keyboard focus inside its Lovable view
+    await hub.prepareSend(ids);   // all projects start loading now
+    // One after another. Each project is brought to the front first: a page that was never shown has no size,
+    // so Lovable's chat box can't be found, and Lovable only starts working once its page is "active".
+    const origin = cur()?.id;
     for (const id of ids) {
+      if (SHOW_SWITCH && cur()?.id !== id) await bringToFront(id);
       const res = await hub.send(id, text, S.mode);
+      if (SHOW_SWITCH && res && res.ok) await waitStarted(id);
       const name = disp(byId(id));
       if (res && res.ok && S.mode === 'chat' && res.modeLabel && res.modeLabel !== S.chatLabel) {
         S.chatLabel = res.modeLabel; store.set('chatLabel', res.modeLabel); renderMode();
@@ -323,8 +334,25 @@
         if (S.status[id] === 'sending') S.status[id] = 'idle';
       }
     }
+    if (SHOW_SWITCH && origin && cur()?.id !== origin) await bringToFront(origin);   // back where you were
     renderCards();
     t.focus();
+  }
+  const SHOW_SWITCH = false;  // true: you see each project come to the front while it gets its prompt (the safe fallback). false: send in the background
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  async function bringToFront(id) {
+    if (S.overlay) closeOverlay(false);
+    const i = S.order.findIndex(p => p.id === id);
+    if (i < 0) return;
+    go(i);
+    const t0 = Date.now();
+    while (Date.now() - t0 < 4000 && !(S.viewShown && cur()?.id === id)) await sleep(100);
+    await sleep(300);
+  }
+  // after sending, give the project a moment to actually start before moving on
+  async function waitStarted(id) {
+    const max = S.mode === 'chat' ? 4000 : 12000, t0 = Date.now();
+    while (Date.now() - t0 < max && S.status[id] !== 'working' && S.status[id] !== 'done') await sleep(300);
   }
 
   $('input').addEventListener('input', () => { autosize(); updateMention(); });
@@ -366,6 +394,43 @@
     const w = S.ws;
     $('wsBtn').textContent = (w && w.loggedIn ? w.name : 'Not logged in') + ' ▾';
   }
+  // ---------- credits left (next to the workspace button) ----------
+  let creditMap = {}, shownCredits = null, creditAnim = null;
+  const fmtCredits = n => Number.isInteger(n) ? String(n) : n.toFixed(1);
+  function creditTotal() {
+    const w = S.ws; if (!w || !w.loggedIn) return null;
+    const ids = w.list.filter(x => x.mine !== false).map(x => x.id);   // overall = your own workspaces, whatever is picked in the menu
+    const have = ids.filter(id => typeof creditMap[id] === 'number');
+    return have.length ? have.reduce((n, id) => n + creditMap[id], 0) : null;
+  }
+  function stopCreditAnim() { if (creditAnim) { cancelAnimationFrame(creditAnim); creditAnim = null; } $('credits').classList.remove('spend'); }
+  function countDown(from, to) {
+    stopCreditAnim();
+    const el = $('credits'), d = $('creditsDelta'), t0 = performance.now(), dur = 1200;
+    el.classList.add('spend');
+    d.textContent = '−' + fmtCredits(Math.round((from - to) * 10) / 10);
+    d.classList.remove('go'); void d.offsetWidth; d.classList.add('go');
+    const tick = now => {
+      const k = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - k, 3);
+      $('creditsNum').textContent = fmtCredits(Math.round((from + (to - from) * e) * 10) / 10);
+      if (k < 1) creditAnim = requestAnimationFrame(tick);
+      else { creditAnim = null; setTimeout(() => { if (!creditAnim) el.classList.remove('spend'); }, 600); }
+    };
+    creditAnim = requestAnimationFrame(tick);
+  }
+  function renderCredits(animate) {
+    const t = creditTotal(), el = $('credits');
+    el.classList.toggle('hidden', t == null);
+    if (t == null) { stopCreditAnim(); shownCredits = null; return; }
+    const w = S.ws;
+    const parts = w.list.filter(x => x.mine !== false && typeof creditMap[x.id] === 'number');
+    $('creditsBreak').innerHTML = parts.length > 1 ? parts.map(x => `<span class="cpart"><span class="cn">${esc(x.name)}</span> <b>${fmtCredits(creditMap[x.id])}</b></span>`).join('') : '';   // shown on hover
+    if (creditAnim && t === shownCredits) return;
+    if (animate && shownCredits != null && t < shownCredits) { const from = shownCredits; shownCredits = t; return countDown(from, t); }
+    stopCreditAnim(); $('creditsNum').textContent = fmtCredits(t); shownCredits = t;
+  }
+  hub.on('credits', map => { creditMap = map || {}; renderCredits(true); });
+
   $('wsBtn').addEventListener('click', () => { const r = $('wsBtn').getBoundingClientRect(); hub.workspaceMenu(r.left, r.bottom + 4); });
 
   hub.on('projects', ({ projects, workspace, reset }) => {
@@ -373,7 +438,7 @@
     const before = cur()?.id;
     S.projects = projects; S.ws = workspace;
     buildOrder(before);
-    renderLogin(); renderWs(); renderChips();
+    renderLogin(); renderWs(); renderChips(); renderCredits(false);
     if (cur()?.id === before && !reset) { renderCards(); renderTitle(); }   // same project still in front: no reload
     else { S.viewShown = false; go(S.idx, { instant: true }); }
   });
@@ -395,6 +460,7 @@
     else if (a === 'focus-input') { if (!S.overlay) $('input').focus(); }
     else if (a === 'goto') { const i = S.order.findIndex(p => p.id === payload.id); if (i >= 0) go(i, { instant: true }); }
   }
+  hub.on('send-problem', ({ id }) => toast(`${disp(byId(id))} didn't start working. Open the project to check.`, true));
   hub.on('key', k => handleAction(k.action, k));
   document.addEventListener('keydown', e => {
     if (e.ctrlKey && e.key === 'Tab') { e.preventDefault(); return handleAction(e.shiftKey ? 'switch-prev' : 'switch-next'); }
@@ -451,6 +517,7 @@
     applyFull(); renderMode();
     const init = await hub.projects();
     S.projects = init.projects; S.ws = init.workspace; renderWs(); renderLogin();
+    hub.credits().then(m => { creditMap = m || {}; renderCredits(false); });
     buildOrder();
     renderCards(); renderChips(); renderTitle(); autosize();
     go(S.idx, { instant: true });

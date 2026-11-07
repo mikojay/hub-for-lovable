@@ -38,25 +38,27 @@ function writeJSON(file, data) { try { fs.mkdirSync(path.dirname(file), { recurs
 
 // The project list comes from the logged-in Lovable account (see "account" below) and is cached here.
 const cacheFile = () => path.join(dataDir(), 'projects.cache.json');   // { workspaces: [{id,name,count}], projects: [...] }
-const settingsFile = () => path.join(dataDir(), 'settings.json');     // { workspace: 'all' | workspace id }
+const settingsFile = () => path.join(dataDir(), 'settings.json');     // { workspaces: [ids picked in the menu; empty = all] }
 const HOME = { id: HOME_ID, name: 'Lovable', home: true };
 
-function currentWorkspace() { return readJSON(settingsFile(), {}).workspace || 'all'; }
 function workspaceInfo() {
   const cache = readJSON(cacheFile(), null);
   const list = (cache && cache.workspaces) || [];
-  let cur = currentWorkspace();
-  if (cur !== 'all' && !list.some(w => w.id === cur)) cur = 'all';
-  const name = cur === 'all' ? (list.length ? 'All workspaces' : 'Not logged in') : list.find(w => w.id === cur).name;
-  return { current: cur, name, list, loggedIn: !!cache };
+  const st = readJSON(settingsFile(), {});
+  let selected = Array.isArray(st.workspaces) ? st.workspaces : (st.workspace && st.workspace !== 'all' ? [st.workspace] : []);   // old setting: one workspace
+  selected = selected.filter(id => list.some(w => w.id === id));
+  if (selected.length === list.length) selected = [];   // everything picked = all
+  const name = !list.length ? 'Not logged in' : !selected.length ? 'All workspaces'
+    : selected.length === 1 ? list.find(w => w.id === selected[0]).name : `${selected.length} workspaces`;
+  return { selected, name, list, loggedIn: !!cache };
 }
 
 function loadProjects() {
   const cache = readJSON(cacheFile(), null);
   if (!cache || !cache.projects) return [{ ...HOME }];
-  const ws = workspaceInfo().current;
+  const sel = workspaceInfo().selected;
   const local = readJSON(localProjectsFile(), { added: [], names: {}, removed: [] });
-  const map = new Map(cache.projects.filter(p => ws === 'all' || p.workspace_id === ws).map(p => [p.id, { ...p }]));
+  const map = new Map(cache.projects.filter(p => !sel.length || sel.includes(p.workspace_id)).map(p => [p.id, { ...p }]));
   for (const p of local.added || []) if (!map.has(p.id)) map.set(p.id, { ...p });   // added by link (＋), e.g. shared with you
   for (const [id, name] of Object.entries(local.names || {})) if (map.has(id) && !map.get(id).name) map.get(id).name = name;
   for (const id of local.removed || []) map.delete(id);
@@ -81,6 +83,7 @@ function setStatus(id, status) {
   if (v && v.status === status) return;
   if (v) v.status = status;
   send('status', { id, status });
+  showFocused();   // a project that is sending/working stays attached off-screen (see showFocused)
 }
 
 async function snapshot(id) {
@@ -159,20 +162,38 @@ function evictIfNeeded() {
   }
 }
 
+// A project that is not in front is normally hidden, and a page that was never shown has no size (0x0), so Lovable's chat
+// box can't be found. A project that is sending or working therefore stays attached with the real size, underneath
+// the project in front (same bounds, so it is covered).
 function showFocused() {
+  if (!win || win.isDestroyed()) return;
   for (const [id, v] of views) {
     const attached = win.contentView.children.includes(v.view);
-    if (id === focusedId && viewVisible && focusedBounds) {
-      if (!attached) win.contentView.addChildView(v.view);
+    const front = id === focusedId && viewVisible && focusedBounds;
+    const busy = v.status === 'sending' || v.status === 'working';
+    if (front) {
+      const kids = win.contentView.children;
+      if (!attached || kids[kids.length - 1] !== v.view) win.contentView.addChildView(v.view);   // on top
       v.view.setBounds(focusedBounds);
       v.view.setVisible(true);
-      v.shown = true;
-    } else if (attached && v.shown) {
+      v.shown = true; v.parked = false;
+      continue;
+    }
+    const wasShown = v.shown;
+    if (v.shown) {
       // a hidden view can't receive keys, so hand focus back to the hub
       // (isFocused() isn't reliable here: the hidden view can stay first responder and swallow keys)
-      v.view.setVisible(false);
       v.shown = false;
       win.webContents.focus();
+    }
+    if (busy && viewVisible && focusedBounds) {
+      if (!attached || !v.parked) win.contentView.addChildView(v.view, 0);   // at the bottom, under the front project
+      v.view.setBounds(focusedBounds);
+      v.view.setVisible(true);
+      v.parked = true;
+    } else if (attached && (v.parked || wasShown)) {
+      v.view.setVisible(false);
+      v.parked = false;
     }
   }
 }
@@ -232,10 +253,43 @@ function watchToken() {
 
 async function api(url) {
   if (!token) return null;
-  const r = await session.fromPartition(PARTITION).fetch('https://api.lovable.dev' + url, { headers: { Authorization: token } });
+  const r = await session.fromPartition(PARTITION).fetch('https://api.lovable.dev' + url, { headers: { Authorization: token }, cache: 'no-store' });
   if (r.status === 401) { token = null; return null; }
   return r.ok ? r.json() : null;
 }
+
+// Credits left per workspace (memory only). Lovable's own editor asks /workspaces/{id}/credit-balance, so the app does too.
+const credits = {};
+let creditsBusy = false, creditsAgain = false, creditsShapeLogged = false;
+function pickBalance(r) {
+  if (typeof r === 'number') return r;
+  if (!r || typeof r !== 'object') return null;
+  if (typeof r.limit === 'number' && typeof r.used === 'number') return r.limit - r.used;
+  for (const k of ['total_remaining', 'remaining', 'available', 'balance', 'credits_remaining', 'credits', 'total']) {
+    if (r[k] != null) { const n = pickBalance(r[k]); if (n != null) return n; }
+  }
+  return null;
+}
+const shapeOf = (o, d = 0) => (o && typeof o === 'object' && d < 2) ? Object.fromEntries(Object.entries(o).map(([k, v]) => [k, shapeOf(v, d + 1)])) : typeof o;
+async function refreshCredits() {
+  if (!token) return;
+  if (creditsBusy) { creditsAgain = true; return; }
+  creditsBusy = true;
+  try {
+    for (const w of workspaceInfo().list) {
+      if (w.mine === false) continue;
+      const r = await api(`/workspaces/${encodeURIComponent(w.id)}/credit-balance`);
+      if (!r) continue;
+      const n = pickBalance(r);
+      if (n == null || !creditsShapeLogged) { creditsShapeLogged = true; console.log('[credits] response keys:', JSON.stringify(shapeOf(r)), n == null ? '(no balance found)' : ''); }   // key names only, no values
+      if (n != null) credits[w.id] = n;
+    }
+    send('credits', credits);
+  } catch (e) { console.error('credits refresh failed:', e.message); }
+  finally { creditsBusy = false; if (creditsAgain) { creditsAgain = false; refreshCredits(); } }
+}
+
+setInterval(refreshCredits, 90e3);   // also catches credits spent elsewhere (Lovable in a browser, a teammate's prompt)
 
 function refreshProjects() {
   if (refreshing || !token) return refreshing;
@@ -243,7 +297,10 @@ function refreshProjects() {
     try {
       const ws = await api('/user/workspaces');
       if (!ws || !Array.isArray(ws.workspaces)) return false;
-      const workspaces = ws.workspaces.map(w => ({ id: w.id, name: w.name, count: w.num_projects }));
+      const roleOf = w => (w.membership && w.membership.role) || w.role || w.user_role || null;
+      if (ws.workspaces[0] && !roleOf(ws.workspaces[0])) console.log('[workspaces] no role field found; keys:', Object.keys(ws.workspaces[0]).join(', '));   // key names only
+      // mine = you own (or administer) it. Workspaces where you are only a contributor don't count for your credits.
+      const workspaces = ws.workspaces.map(w => ({ id: w.id, name: w.name, count: w.num_projects, mine: !roleOf(w) || /^(owner|admin)/i.test(roleOf(w)) }));
       const projects = [];
       for (const w of workspaces) {
         let cursor = null;
@@ -260,6 +317,7 @@ function refreshProjects() {
       const next = { workspaces, projects };
       lastRefresh = Date.now();
       if (before !== JSON.stringify(next)) { writeJSON(cacheFile(), next); sendProjects(); }
+      refreshCredits();
       return true;
     } catch (e) { console.error('project refresh failed:', e.message); return false; }
     finally { refreshing = null; }
@@ -269,23 +327,34 @@ function refreshProjects() {
 
 function sendProjects(extra = {}) { send('projects', { projects: loadProjects(), workspace: workspaceInfo(), ...extra }); }
 
-function setWorkspace(id) {
-  writeJSON(settingsFile(), { ...readJSON(settingsFile(), {}), workspace: id });
+function setWorkspaces(ids) {
+  const st = { ...readJSON(settingsFile(), {}), workspaces: ids };
+  delete st.workspace;
+  writeJSON(settingsFile(), st);
   sendProjects();
 }
+// Pick one workspace, pick more, click again to un-pick. Nothing picked (or everything picked) = all.
+function toggleWorkspace(id) {
+  const info = workspaceInfo();
+  const sel = new Set(info.selected);
+  if (sel.has(id)) sel.delete(id); else sel.add(id);
+  setWorkspaces(sel.size === info.list.length ? [] : [...sel]);
+}
 
-function workspaceMenu() {
+// The menu closes after each click on macOS, so it opens again at the same spot: picking several is quick.
+function popupWorkspaceMenu(x, y) {
+  const again = fn => () => { fn(); setTimeout(() => popupWorkspaceMenu(x, y), 60); };
   const info = workspaceInfo();
   const total = info.list.reduce((n, w) => n + (w.count || 0), 0);
   const items = info.list.length ? [
-    { label: `All workspaces (${total})`, type: 'radio', checked: info.current === 'all', click: () => setWorkspace('all') },
+    { label: `All workspaces (${total})`, type: 'checkbox', checked: !info.selected.length, click: again(() => setWorkspaces([])) },
     { type: 'separator' },
-    ...info.list.map(w => ({ label: `${w.name} (${w.count ?? '?'})`, type: 'radio', checked: info.current === w.id, click: () => setWorkspace(w.id) })),
+    ...info.list.map(w => ({ label: `${w.name} (${w.count ?? '?'})${w.mine === false ? ' · shared with you' : ''}`, type: 'checkbox', checked: info.selected.includes(w.id), click: again(() => toggleWorkspace(w.id)) })),
     { type: 'separator' },
     { label: 'Refresh Project List', click: () => refreshProjects() },
     { label: 'Log Out…', click: logout }
   ] : [{ label: 'Log in to Lovable in the card first', enabled: false }];
-  return Menu.buildFromTemplate(items);
+  Menu.buildFromTemplate(items).popup({ window: win, x: Math.round(x), y: Math.round(y) });
 }
 
 async function logout() {
@@ -297,6 +366,8 @@ async function logout() {
   if (response !== 0) return;
   for (const [, v] of views) { try { win.contentView.removeChildView(v.view); } catch {} v.view.webContents.close(); }
   views.clear(); focusedId = null; token = null;
+  for (const k of Object.keys(credits)) delete credits[k];
+  send('credits', credits);
   const ses = session.fromPartition(PARTITION);
   await ses.clearStorageData();
   await ses.clearCache();
@@ -316,8 +387,10 @@ async function pollStatuses() {
       setStatus(id, 'working');
     } else if (v.status === 'working' || v.status === 'sending') {
       v.idleTicks++;
-      if (v.status === 'sending' && !v.sawWorking && Date.now() - (v.sentAt || 0) > 45000) {
-        setStatus(id, 'idle'); // never saw it start: give up quietly, the card shows Lovable itself
+      const waiting = v.preparing && Date.now() - (v.preparedAt || 0) < 300000;   // still queued behind other projects
+      if (v.status === 'sending' && !v.sawWorking && !waiting && Date.now() - (v.sentAt || 0) > 45000) {
+        setStatus(id, 'idle'); // never saw it start: the card shows Lovable itself
+        if (v.lastMode !== 'chat') send('send-problem', { id });
       } else if (v.sawWorking && v.idleTicks >= 2) {
         v.sawWorking = false;
         setStatus(id, 'done');
@@ -329,6 +402,7 @@ async function pollStatuses() {
 }
 
 async function onDone(id) {
+  for (const ms of [0, 3000, 10000, 30000, 60000]) setTimeout(refreshCredits, ms);   // the balance can settle a while after the answer
   await sleep(2500);          // let the preview rebuild
   await snapshot(id);
   const p = loadProjects().find(x => x.id === id);
@@ -371,8 +445,13 @@ async function setMode(wc, mode) {
 
 // ---------- sending a prompt into Lovable's chat ----------
 async function sendPrompt(id, text, mode) {
+  try { return await sendPromptInner(id, text, mode); }
+  finally { if (win && !win.isDestroyed()) win.webContents.focus(); }   // sending briefly focuses the project's page; give the keyboard back
+}
+async function sendPromptInner(id, text, mode) {
   const v = ensureView(id);
   const wc = v.view.webContents;
+  v.preparing = false; v.lastMode = mode;
   setStatus(id, 'sending');
   v.sentAt = Date.now(); v.sawWorking = false; v.idleTicks = 0;
 
@@ -415,14 +494,14 @@ async function sendPrompt(id, text, mode) {
     left = await exec(wc, DOM.READ_CHAT_INPUT);
   }
   if (left && left.trim()) { setStatus(id, 'idle'); return { ok: false, reason: 'not-sent' }; }
-  if (id === focusedId) win.webContents.focus();
   return { ok: true, modeLabel };
 }
 
 // ---------- IPC ----------
 ipcMain.handle('projects', () => ({ projects: loadProjects(), workspace: workspaceInfo() }));
+ipcMain.handle('credits', () => credits);
 ipcMain.on('warm', (_e, id) => { if (id === HOME_ID) ensureView(id); });   // start loading the login page early
-ipcMain.on('workspace-menu', (_e, { x, y }) => workspaceMenu().popup({ window: win, x: Math.round(x), y: Math.round(y) }));
+ipcMain.on('workspace-menu', (_e, { x, y }) => popupWorkspaceMenu(x, y));
 
 ipcMain.handle('focus', (_e, { id, bounds }) => {
   focusedId = id;
@@ -447,6 +526,10 @@ ipcMain.handle('hide', async (_e, { capture } = {}) => {
 });
 ipcMain.on('show', () => { viewVisible = true; showFocused(); });
 ipcMain.on('focus-view', () => { const v = views.get(focusedId); if (v) v.view.webContents.focus(); });
+// Load all targets at the same time (older projects can take a while), then the UI sends to them one after another.
+ipcMain.handle('prepare-send', (_e, ids) => {
+  for (const id of ids) { const v = ensureView(id); v.preparing = true; v.preparedAt = Date.now(); v.sentAt = Date.now(); setStatus(id, 'sending'); }
+});
 ipcMain.handle('send', (_e, { id, text, mode }) => sendPrompt(id, text, mode));
 ipcMain.on('reload', () => { const v = views.get(focusedId); if (v) v.view.webContents.reload(); });
 ipcMain.on('open-external', (_e, url) => { if (/^https:\/\//.test(url)) shell.openExternal(url); });
