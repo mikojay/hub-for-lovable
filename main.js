@@ -111,11 +111,75 @@ function createView(id) {
   // Sign-in popups (Google/GitHub) stay inside the app; everything else opens in your normal browser.
   wc.setWindowOpenHandler(({ url }) => {
     // includes auth.lovable.dev (Lovable's Google sign-in popup) and Firebase auth pages
-    if (/^https:\/\/(([a-z0-9-]+\.)*lovable\.dev|accounts\.google\.com|([a-z0-9-]+\.)*firebaseapp\.com|github\.com)(\/|$)/.test(url)) {
+    // Also the project's own sign-in (Supabase, the preview itself, Apple/Microsoft) and about:blank, which
+    // OAuth libraries open first and navigate afterwards. Otherwise it opens in your browser, where the
+    // login never reaches the app (separate session).
+    if (url === 'about:blank' || /^https:\/\/(([a-z0-9-]+\.)*(lovable\.dev|lovable\.app|lovableproject\.com|supabase\.co|firebaseapp\.com|google\.com)|github\.com|appleid\.apple\.com|login\.microsoftonline\.com)(\/|$)/.test(url)) {
       return { action: 'allow', overrideBrowserWindowOptions: { width: 520, height: 680, webPreferences: { partition: PARTITION } } };
     }
     shell.openExternal(url);
     return { action: 'deny' };
+  });
+  wc.on('did-create-window', (win) => {
+    // Lovable's preview sign-in ends on http://127.0.0.1/iframe-oauth/callback (nothing listens there inside the app).
+    // Send it to the project's own host instead: that page hands the login back to the project.
+    let origin = null;
+    // The project's own host has no page for /iframe-oauth/callback (404), so we do what that page would do:
+    // store the session where the project's sign-in keeps it, close the popup, reload the preview.
+    let sawCallback = false, closing = false;
+    const handoff = async (p) => {
+      if (closing) return; closing = true;
+      try {
+        const at = p.get('access_token'), rt = p.get('refresh_token');
+        if (!at || !rt) return;
+        const c = JSON.parse(Buffer.from(at.split('.')[1], 'base64url').toString());
+        const ref = new URL(c.iss).hostname.split('.')[0];
+        const exp = Number(p.get('expires_in')) || 3600;
+        const session = { access_token: at, refresh_token: rt, token_type: p.get('token_type') || 'bearer', expires_in: exp,
+          expires_at: Math.floor(Date.now() / 1000) + exp,
+          user: { id: c.sub, aud: c.aud, role: c.role, email: c.email, phone: c.phone || '', app_metadata: c.app_metadata || {},
+            user_metadata: c.user_metadata || {}, is_anonymous: !!c.is_anonymous } };
+        const code = 'localStorage.setItem(' + JSON.stringify('sb-' + ref + '-auth-token') + ',' + JSON.stringify(JSON.stringify(session)) + ')';
+        for (const f of wc.mainFrame.framesInSubtree) {
+          try {
+            if (new URL(f.url).origin === origin) {
+              await f.executeJavaScript(code);
+              const keys = await f.executeJavaScript('Object.keys(localStorage).join(", ")');
+            }
+          } catch (err) { console.log('[popup] handoff frame error', err.message); }
+        }
+        sawCallback = true;
+      } catch (err) { console.log('[popup] handoff failed', err.message); }
+      if (!win.isDestroyed()) win.close();
+    };
+    const fix = (e, url) => {
+      try {
+        const x = new URL(url);
+        if (/\/~oauth\//.test(x.pathname) && x.protocol === 'https:') origin = x.origin;
+        if (x.hostname === '127.0.0.1' && x.pathname.startsWith('/iframe-oauth/') && origin) {
+          e.preventDefault();
+          handoff(new URLSearchParams(x.hash.replace(/^#/, '')));
+        }
+      } catch (_) {}
+    };
+    win.webContents.on('will-navigate', fix);
+    win.webContents.on('will-redirect', fix);
+    // Once the popup has finished the callback and lands in the app itself, close it and reload the project's
+    // preview so it picks up the new login (the popup stored it for the same site).
+    win.webContents.on('did-navigate', (_e, url) => {
+      try {
+        const x = new URL(url);
+        if (x.pathname.startsWith('/iframe-oauth/')) sawCallback = true;
+        else if (sawCallback && !x.pathname.startsWith('/~oauth') && !x.pathname.startsWith('/__l5e')) setTimeout(() => { if (!win.isDestroyed()) win.close(); }, 400);
+      } catch (_) {}
+    });
+    win.on('closed', () => {
+      if (!sawCallback || !origin || wc.isDestroyed()) return;
+      for (const f of wc.mainFrame.framesInSubtree) {
+        try { if (new URL(f.url).origin === origin) f.executeJavaScript("location.replace('/')").catch(() => {}); } catch (_) {}
+      }
+    });
+    win.webContents.on('did-start-navigation', (_e, url, _ip, main) => { if (main) fix({ preventDefault() {} }, url); });
   });
   wc.on('will-navigate', (e, url) => {
     // keep the card on Lovable; open other sites outside

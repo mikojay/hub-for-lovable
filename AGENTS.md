@@ -38,6 +38,11 @@ For development, `npm start` runs the app from the folder. Quit the installed ap
 - **A Lovable page that was never shown has no size (0x0)**, so its chat box can't be found. `showFocused()` in `main.js` keeps projects that are sending or working attached underneath the front project at the same bounds (real size, page counts as visible). `prepare-send` loads all `@` targets at once. Don't park views off-screen: they stay 0x0. `SHOW_SWITCH` in `ui/app.js` is a visible-switching fallback.
 - **Menu accelerators fail after a hidden view kept focus** (macOS error beep). Shortcuts are therefore handled in
   `handleKey()` in `main.js` via `before-input-event` on the hub and on every Lovable view.
+- **Google login inside a project's preview** (the project's own app, not Lovable's login) opens a popup that ends on
+  `http://127.0.0.1/iframe-oauth/callback#access_token=…`, which only Lovable's own editor handles. In `createView()`,
+  `did-create-window` catches that redirect, writes the session to the preview's `sb-<ref>-auth-token` localStorage key,
+  closes the popup and sends the preview to `/`. Popups must stay inside the app (the allow-list in `setWindowOpenHandler`),
+  because the browser has a separate session. Never log the callback URL or its tokens.
 - **Native views draw above the HTML.** Anything the hub shows on top of a project (popups, overlays) must hide the view
   first (`hub.hide`) or use a native menu (`Menu.popup`), like the workspace switcher does.
 
