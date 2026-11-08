@@ -1,7 +1,7 @@
 {
   "name": "hub-for-lovable",
   "productName": "Hub for Lovable",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "One window for all your Lovable projects: card row, ⌘G grid, one input bar.",
   "main": "main.js",
   "private": true,
